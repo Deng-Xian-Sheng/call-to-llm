@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
   <meta charset="UTF-8" />
-  <title>1Web App 示例 - VAD + 摄像头 + 调用第三方 OpenAI API</title>
+  <title>Web App 示例 - VAD + 摄像头 + 调用第三方 OpenAI API</title>
   <!-- 样式：黑色背景、居中摄像头、波形区域等 -->
   <style>
     html, body {
@@ -62,7 +62,7 @@
 
 <!-- lamejs: 用于将录音的 PCM 数据转 MP3 -->
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
-
+<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
 <script>
 /**
  * 全局变量
@@ -177,7 +177,7 @@ async function initMedia() {
   videoElement.srcObject = globalStream;
 
   // 创建音频上下文 & 分析器
-//   audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioContext.createMediaStreamSource(globalStream);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 2048;
@@ -417,11 +417,65 @@ function arrayBufferToBase64(uint8Arr) {
  * 播放base64音频
  */
 function playBase64Audio(base64) {
+  playBase64AudioWithHowler(base64)
+  return;
   const audio = new Audio("data:audio/mp3;base64," + base64);
   audio.play()
     .then(() => {})
-    .catch(e => console.error("音频播放失败", e));
+    .catch(e => {
+        console.error("音频播放失败", e)
+        var sound = new Howl({
+        src: ['/if.mp3'],
+        onplayerror: function() {
+            sound.once('unlock', function() {
+                    sound.play();
+                    });
+        }
+        });
+        sound.pos(0,0,0);
+        sound.seek(20);
+        sound.play();
+    });
 }
+
+/**
+ * 用 Howler 播放 Base64 音频
+ * @param {string} base64Data - 不带前缀的 MP3 Base64 字符串
+ */
+ function playBase64AudioWithHowler(base64Data) {
+  if (!window.__audioUnlocked) {
+    console.warn('请先点击页面以解锁音频播放');
+    return;
+  }
+
+  // 构建 data URI
+  const src = 'data:audio/mp3;base64,' + base64Data;
+
+  // 如果之前有实例，可先 unload
+  if (window.__howl) {
+    window.__howl.unload();
+  }
+
+  // 新建 Howl 实例
+  window.__howl = new Howl({
+    src: [src],
+    format: ['mp3'],
+    html5: true,      // 强制用 HTML5 Audio，而不是 WebAudio，兼容性更好
+    onloaderror: (id, err) => {
+      console.error('Howler 加载失败', err);
+    },
+    onplayerror: (id, err) => {
+      console.error('Howler 播放失败，尝试解锁并重试', err);
+      window.__howl.once('unlock', () => {
+        window.__howl.play();
+      });
+    }
+  });
+
+  // 播放
+  window.__howl.play();
+}
+
 
 /**
  * 绘制波形到 canvas
@@ -476,30 +530,7 @@ function drawWave() {
  * 页面加载时执行
  */
 window.addEventListener("load", () => {
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
-  
   initMedia().catch(err => console.error("initMedia error:", err));
-  
-  // 用户第一次触摸/点击时解锁 AudioContext & HTMLAudioElement
-  function unlockAudio() {
-    // 1) 恢复 AudioContext
-    if (audioContext.state === 'suspended') {
-      audioContext.resume();
-    }
-    // 2) “假”播放一个空的 Audio 对象
-    const a = new Audio();
-    a.src = 'data:audio/mp3;base64,';
-    a.play().catch(() => {/* 忽略错误 */})
-     .finally(() => { a.pause(); });
-
-    // 解绑，只执行一次
-    document.body.removeEventListener('touchstart', unlockAudio);
-    document.body.removeEventListener('click', unlockAudio);
-  }
-
-  // 监听用户交互
-  document.body.addEventListener('touchstart', unlockAudio, { once: true });
-  document.body.addEventListener('click', unlockAudio, { once: true });
 });
 </script>
 </body>
