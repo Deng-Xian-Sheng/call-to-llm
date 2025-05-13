@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <title>Web App 示例 - VAD + 摄像头 + 调用第三方 OpenAI API</title>
+  <!-- 样式：黑色背景、居中摄像头、波形区域等 -->
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #000;
+      color: #fff;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
+    #app {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    /* 摄像头预览容器 */
+    .camera-container {
+      position: absolute;
+      top: 5%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      height: 65%; /* 占屏幕2/3左右 */
+      border-radius: 20px;
+      border: 2px solid #fff; /* 白色描边 */
+      overflow: hidden; /* 圆角 */
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #000;
+    }
+    /* 波形画布 */
+    #waveCanvas {
+      position: absolute;
+      bottom: 5%;
+      left: 5%;
+      width: 90%;
+      height: 15%;
+      background-color: #000; /* 与背景一致 */
+    }
+  </style>
+</head>
+
+<body>
+<div id="app">
+  <!-- 摄像头预览区域 -->
+  <div class="camera-container">
+    <video id="cameraFeed" autoplay muted playsinline webkit-playsinline></video>
+  </div>
+  <!-- 波形显示区域 -->
+  <canvas id="waveCanvas"></canvas>
+</div>
+
+<!-- lamejs: 用于将录音的 PCM 数据转 MP3 -->
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
+
+<script>
+/**
+ * 全局变量
+ */
+let globalStream = null; // 麦克风+摄像头流
+let audioContext = null;
+let analyser = null;
+let mediaRecorder = null;
+let audioDataBuffer = []; // 存储录音的PCM数据
+let recording = false;
+let vadActive = false;
+let silenceTimeout = null; // 用于检测停止说话的超时
+let messages = []; // 用于多轮对话
+
+/**
+ * callTextImageLLM: 返回图片的文字描述
+ * （你在需求中提供的调用方式，此处只是演示用法）
+ */
+async function callTextImageLLM(base64Image, imageFormat = "jpeg") {
+  const pureBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
+  const payload = {
+    model: "openai",
+    messages: [
+      {
+        role: "developer",
+        content:
+          "你是一个忠实地图片描述助手，为另一个LLM描述图片中的内容。请仔细观察图片所有细节，对文本要OCR，对场景要详细描述。",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "描述以下图片" },
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:image/${imageFormat};base64,${pureBase64}`,
+            },
+          },
+        ],
+      },
+    ],
+    referrer: "call to chatgpt1",
+  };
+
+  const url = "https://text.pollinations.ai/openai";
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    throw new Error(`Text+Image LLM error: ${errorText}`);
+  }
+  const json = await resp.json();
+  const answer = json.choices?.[0]?.message?.content || "";
+  return answer;
+}
+
+/**
+ * callAudioLLM: 将已有的对话消息 + 音频，传给第三方 openai 接口
+ * 返回新的助手音频回答
+ */
+async function callAudioLLM(messagesParam) {
+  const payload = {
+    model: "openai-audio",
+    modalities: ["text", "audio"],
+    audio: { voice: "alloy", format: "mp3" },
+    messages: messagesParam,
+    referrer: "call to chatgpt1",
+  };
+  const url = "https://text.pollinations.ai/openai";
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const errorText = await resp.text();
+    throw new Error(`Audio LLM error: ${errorText}`);
+  }
+  const json = await resp.json();
+  // 模型的语音回答
+  return {
+    data: json?.choices?.[0]?.message?.audio?.data || null,
+    id: json?.choices?.[0]?.message?.audio?.id || null
+  };
+}
+
+/**
+ * 初始化麦克风和摄像头
+ * 请注意必须在 HTTPS 环境或 localhost 才能获取到设备权限
+ */
+async function initMedia() {
+  try {
+    // 获取后置摄像头（有些设备就只有一个摄像头，需要根据实际情况适配）
+    globalStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: { facingMode: { exact: "environment" } },
+    });
+  } catch (e) {
+    console.warn("尝试获取后置摄像头失败，改用默认摄像头", e);
+    // 如果后置摄像头获取失败，则尝试使用用户设备首选摄像头
+    globalStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true,
+    });
+  }
+
+  // 播放摄像头
+  const videoElement = document.getElementById("cameraFeed");
+  videoElement.playsInline = true;
+  videoElement.muted       = true;
+  videoElement.srcObject = globalStream;
+  try {
+    await video.play();
+  } catch (err) {
+    console.warn("Video.play() 拒绝，需要用户交互启动", err);
+  }
+
+  // 创建音频上下文 & 分析器
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(globalStream);
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 2048;
+  source.connect(analyser);
+
+  // 用于录音的 MediaRecorder
+  mediaRecorder = new MediaRecorder(globalStream);
+
+  mediaRecorder.addEventListener("dataavailable", (e) => {
+    if (e.data && e.data.size > 0) {
+      audioDataBuffer.push(e.data);
+    }
+  });
+
+  mediaRecorder.addEventListener("stop", async () => {
+    // 停止录音后，将所有 audio/webm 数据合并，然后用 FileReader 解析为 ArrayBuffer
+    const blob = new Blob(audioDataBuffer, { type: "audio/webm" });
+    audioDataBuffer = [];
+
+    // 将 Blob 转换成 PCM 并用 lamejs 转成 MP3
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    // 转换 PCM
+    const channelData = audioBuffer.getChannelData(0); // 只取一个声道
+    const sampleRate = audioBuffer.sampleRate;
+
+    // 使用 lamejs 将PCM转换成MP3
+    const mp3Data = pcmToMp3(channelData, sampleRate);
+    // 转 base64
+    const mp3Base64 = arrayBufferToBase64(mp3Data);
+
+    // 调用第三方 API
+    // （messages 中需要包含系统提示词、用户消息等，这里做示例）
+    // 1) 先在 messages 中添加用户消息 (含上一次抓取的图像描述 + 音频)
+    //    这里假设我们把图像描述暂存在 window.latestedImageDesc
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `<img_desc>\n${window.latestedImageDesc || ""}\n</img_desc>`,
+        },
+        {
+          type: "input_audio",
+          input_audio: {
+            data: mp3Base64, // mp3的base64
+            format: "mp3",
+          },
+        },
+      ],
+    });
+
+    // 2) 构造 system / developer 消息（只加一次即可，示例中每次都加也行，灵活看你逻辑）
+    if (!messages.find((msg) => msg.role === "developer")) {
+      messages.unshift({
+        role: "developer",
+        content:
+          '用户会发送给你图片，但是你无法查看图片，于是我用另外一个模型将图片转换成了文本描述，这样你就知道图片中的内容了。图片中的内容由<img_desc></img_desc>标签包裹。',
+      });
+    }
+
+    // 3) 调用语音聊天接口
+    let audioResponseBase64 = null;
+    let audioResponseId     = null;
+    try {
+      ({ data: audioResponseBase64, id: audioResponseId } = await callAudioLLM(messages));
+    } catch (err) {
+      console.error("调用语音聊天接口出错", err);
+    }
+    if (!audioResponseBase64) {
+      return;
+    }
+
+    // 4) 将助手消息加入 messages
+    messages.push({
+      role: "assistant",
+      content: [
+        {
+          type: "audio",
+          audio: {
+            id:audioResponseId,
+          },
+        },
+      ],
+    });
+    console.log(audioResponseId)
+    // 5) 播放返回的音频
+    playBase64Audio(audioResponseBase64);
+  });
+
+  // 开启绘制波形
+  drawWave();
+  // 开启 VAD 监听
+  vadLoop();
+}
+
+/**
+ * 简易地用js循环检测分贝进行VAD判断。
+ * 如果达到阈值则开始录音，如果低于阈值一段时间则停止录音。
+ */
+function vadLoop() {
+  const dataArray = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(dataArray);
+
+  // 简单计算音量大小
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    const val = (dataArray[i] - 128) / 128;
+    sum += val * val;
+  }
+  const rms = Math.sqrt(sum / dataArray.length);
+
+  const volume = rms * 100; // 0 ~ 1之间，放大一点方便看
+  const VAD_THRESHOLD = 1; // 需要多调试
+  if (!recording && volume > VAD_THRESHOLD) {
+    console.log("检测到说话，开始录音");
+    startRecording();
+  }
+  if (recording && volume < VAD_THRESHOLD) {
+    // 如果说话音量降到阈值以下，则计时
+    if (silenceTimeout) {
+      // 已在计时中
+    } else {
+      silenceTimeout = setTimeout(() => {
+        console.log("检测到停止说话，结束录音");
+        stopRecording();
+        silenceTimeout = null;
+      }, 2000); // 2秒后确认为停止说话
+    }
+  }
+  requestAnimationFrame(vadLoop);
+}
+
+/**
+ * 开始录音
+ */
+async function startRecording() {
+  if (!mediaRecorder) return;
+  if (recording) return;
+  recording = true;
+  vadActive = true;
+  mediaRecorder.start();
+
+  // 抓取一帧摄像头图像
+  const imageBase64 = await captureFrame();
+  // 调用图转文字描述
+  let imageDesc = "";
+  try {
+    imageDesc = await callTextImageLLM(imageBase64);
+  } catch (err) {
+    console.error("调用图转文字描述API失败:", err);
+  }
+  // 缓存图像描述到全局
+  window.latestedImageDesc = imageDesc;
+}
+
+/**
+ * 停止录音
+ */
+function stopRecording() {
+  if (!mediaRecorder) return;
+  if (!recording) return;
+  recording = false;
+  vadActive = false;
+  mediaRecorder.stop();
+  if (silenceTimeout) {
+    clearTimeout(silenceTimeout);
+    silenceTimeout = null;
+  }
+}
+
+/**
+ * 将当前Video画面抓取为Base64截图
+ */
+function captureFrame() {
+  return new Promise((resolve) => {
+    const video = document.getElementById("cameraFeed");
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataURL = canvas.toDataURL("image/jpeg");
+    resolve(dataURL);
+  });
+}
+
+/**
+ * PCM 转 MP3
+ * @param {Float32Array} channelData
+ * @param {number} sampleRate
+ */
+function pcmToMp3(channelData, sampleRate) {
+  const mp3Encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+  const blockSize = 1152;
+  let mp3Data = [];
+  let index = 0;
+  while (index < channelData.length) {
+    const slice = channelData.slice(index, index + blockSize);
+    // Float32 -> Int16
+    const buffer = new Int16Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      buffer[i] = slice[i] * 32767.5;
+    }
+    const encoded = mp3Encoder.encodeBuffer(buffer);
+    if (encoded.length > 0) {
+      mp3Data.push(new Int8Array(encoded));
+    }
+    index += blockSize;
+  }
+  const end = mp3Encoder.flush();
+  if (end.length > 0) {
+    mp3Data.push(new Int8Array(end));
+  }
+  // 合并
+  const result = new Uint8Array(mp3Data.reduce((acc, arr) => acc + arr.length, 0));
+  let offset = 0;
+  mp3Data.forEach((arr) => {
+    result.set(arr, offset);
+    offset += arr.length;
+  });
+  return result;
+}
+
+/**
+ * 将 ArrayBuffer / Uint8Array 转为base64
+ */
+function arrayBufferToBase64(uint8Arr) {
+  let binary = "";
+  for (let i = 0; i < uint8Arr.byteLength; i++) {
+    binary += String.fromCharCode(uint8Arr[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * 播放base64音频
+ */
+function playBase64Audio(base64) {
+  const audio = new Audio("data:audio/mp3;base64," + base64);
+  audio.play()
+    .then(() => {})
+    .catch(e => console.error("音频播放失败", e));
+}
+
+/**
+ * 绘制波形到 canvas
+ */
+function drawWave() {
+  const canvas = document.getElementById("waveCanvas");
+  const ctx = canvas.getContext("2d");
+
+  function draw() {
+    if (!analyser) {
+      requestAnimationFrame(draw);
+      return;
+    }
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // 拿到时域数据
+    const dataArray = new Uint8Array(analyser.fftSize);
+    analyser.getByteTimeDomainData(dataArray);
+
+    // 清空画布
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    // 画波形
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#0f0"; // 绿色或你喜欢的颜色
+    ctx.beginPath();
+
+    const sliceWidth = (width * 1.0) / dataArray.length;
+    let x = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+      const v = dataArray[i] / 128.0;
+      const y = (v * height) / 2;
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+      x += sliceWidth;
+    }
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+/**
+ * 页面加载时执行
+ */
+window.addEventListener("load", () => {
+  initMedia().catch(err => console.error("initMedia error:", err));
+});
+</script>
+</body>
+</html>
