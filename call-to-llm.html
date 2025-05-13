@@ -177,7 +177,7 @@ async function initMedia() {
   videoElement.srcObject = globalStream;
 
   // 创建音频上下文 & 分析器
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+//   audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioContext.createMediaStreamSource(globalStream);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 2048;
@@ -476,7 +476,30 @@ function drawWave() {
  * 页面加载时执行
  */
 window.addEventListener("load", () => {
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  
   initMedia().catch(err => console.error("initMedia error:", err));
+  
+  // 用户第一次触摸/点击时解锁 AudioContext & HTMLAudioElement
+  function unlockAudio() {
+    // 1) 恢复 AudioContext
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+    // 2) “假”播放一个空的 Audio 对象
+    const a = new Audio();
+    a.src = 'data:audio/mp3;base64,';
+    a.play().catch(() => {/* 忽略错误 */})
+     .finally(() => { a.pause(); });
+
+    // 解绑，只执行一次
+    document.body.removeEventListener('touchstart', unlockAudio);
+    document.body.removeEventListener('click', unlockAudio);
+  }
+
+  // 监听用户交互
+  document.body.addEventListener('touchstart', unlockAudio, { once: true });
+  document.body.addEventListener('click', unlockAudio, { once: true });
 });
 </script>
 </body>
