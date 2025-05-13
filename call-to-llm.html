@@ -60,9 +60,20 @@
   <canvas id="waveCanvas"></canvas>
 </div>
 
+<!-- 播放授权蒙层 -->
+<div id="audio-permission-overlay" style="
+position: fixed; top:0; left:0; right:0; bottom:0;
+background: rgba(0,0,0,0.8); display: flex;
+align-items: center; justify-content: center; z-index: 9999;
+">
+<button id="allow-audio-btn" style="
+  padding: 1em 2em; font-size: 1.2em;
+">允许播放</button>
+</div>
+
 <!-- lamejs: 用于将录音的 PCM 数据转 MP3 -->
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+
 <script>
 /**
  * 全局变量
@@ -417,65 +428,11 @@ function arrayBufferToBase64(uint8Arr) {
  * 播放base64音频
  */
 function playBase64Audio(base64) {
-  playBase64AudioWithHowler(base64)
-  return;
   const audio = new Audio("data:audio/mp3;base64," + base64);
   audio.play()
     .then(() => {})
-    .catch(e => {
-        console.error("音频播放失败", e)
-        var sound = new Howl({
-        src: ['/if.mp3'],
-        onplayerror: function() {
-            sound.once('unlock', function() {
-                    sound.play();
-                    });
-        }
-        });
-        sound.pos(0,0,0);
-        sound.seek(20);
-        sound.play();
-    });
+    .catch(e => console.error("音频播放失败", e));
 }
-
-/**
- * 用 Howler 播放 Base64 音频
- * @param {string} base64Data - 不带前缀的 MP3 Base64 字符串
- */
- function playBase64AudioWithHowler(base64Data) {
-  if (!window.__audioUnlocked) {
-    console.warn('请先点击页面以解锁音频播放');
-    return;
-  }
-
-  // 构建 data URI
-  const src = 'data:audio/mp3;base64,' + base64Data;
-
-  // 如果之前有实例，可先 unload
-  if (window.__howl) {
-    window.__howl.unload();
-  }
-
-  // 新建 Howl 实例
-  window.__howl = new Howl({
-    src: [src],
-    format: ['mp3'],
-    html5: true,      // 强制用 HTML5 Audio，而不是 WebAudio，兼容性更好
-    onloaderror: (id, err) => {
-      console.error('Howler 加载失败', err);
-    },
-    onplayerror: (id, err) => {
-      console.error('Howler 播放失败，尝试解锁并重试', err);
-      window.__howl.once('unlock', () => {
-        window.__howl.play();
-      });
-    }
-  });
-
-  // 播放
-  window.__howl.play();
-}
-
 
 /**
  * 绘制波形到 canvas
@@ -531,6 +488,26 @@ function drawWave() {
  */
 window.addEventListener("load", () => {
   initMedia().catch(err => console.error("initMedia error:", err));
+});
+
+window.addEventListener('load', () => {
+      const overlay = document.getElementById('audio-permission-overlay');
+      const btn     = document.getElementById('allow-audio-btn');
+
+      btn.addEventListener('click', async () => {
+        // 如果用到了 Web Audio API，先 resume 一下上下文
+        if (window.audioContext && audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+
+        // 可选：播放一小段静音，确保后续 audio.play() 都被视为用户触发
+        const silent = new Audio('data:audio/mp3;base64,//uQxAAAAAAD...'); 
+        // （这里 base64 填一个超短的静音帧即可）
+        await silent.play().catch(() => { /* ignore */ });
+
+        // 隐藏蒙层
+        overlay.style.display = 'none';
+      });
 });
 </script>
 </body>
