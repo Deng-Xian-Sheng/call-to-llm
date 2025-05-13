@@ -54,7 +54,7 @@
 <div id="app">
   <!-- 摄像头预览区域 -->
   <div class="camera-container">
-    <video id="cameraFeed" autoplay muted playsinline webkit-playsinline></video>
+    <video id="cameraFeed" autoplay muted playsinline></video>
   </div>
   <!-- 波形显示区域 -->
   <canvas id="waveCanvas"></canvas>
@@ -174,14 +174,7 @@ async function initMedia() {
 
   // 播放摄像头
   const videoElement = document.getElementById("cameraFeed");
-  videoElement.playsInline = true;
-  videoElement.muted       = true;
   videoElement.srcObject = globalStream;
-  try {
-    await video.play();
-  } catch (err) {
-    console.warn("Video.play() 拒绝，需要用户交互启动", err);
-  }
 
   // 创建音频上下文 & 分析器
   audioContext = new (window.AudioContext || window.webkitAudioContext)();
