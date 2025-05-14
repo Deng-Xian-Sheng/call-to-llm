@@ -420,24 +420,35 @@ function arrayBufferToBase64(uint8Arr) {
 /**
  * 播放base64音频
  */
+// 把 Base64 解成 Uint8Array
 function base64ToUint8Array(base64) {
   const raw = atob(base64);
   const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) {
+  for (let i = 0; i < raw.length; ++i) {
     arr[i] = raw.charCodeAt(i);
   }
   return arr;
 }
-function playBase64Audio(base64) {
-  const mime = 'audio/mp3';
+
+// 用 AudioContext 播放
+async function playBase64ViaAudioContext(base64) {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  // iOS 必须先 resume()
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume();
+  }
+
   const u8 = base64ToUint8Array(base64);
-  const blob = new Blob([u8], { type: mime });
-  const url  = URL.createObjectURL(blob);
-  const audio = new Audio(url);
-  audio.play().catch(err => console.error('播放失败', err));
-  // 播放完后释放 URL
-  audio.onended = () => URL.revokeObjectURL(url);
+  // 解码 MP3（或其它格式）
+  const audioBuffer = await audioContext.decodeAudioData(u8.buffer);
+  const src = audioContext.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(audioContext.destination);
+  src.start(0);
 }
+
 
 /**
  * 绘制波形到 canvas
@@ -492,6 +503,20 @@ function drawWave() {
  * 页面加载时执行
  */
 window.addEventListener("load", () => {
+    document.body.addEventListener('touchend', async function _unlock() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // 任何空白缓冲都行，只是为了拿到播放授权
+    const buffer = audioContext.createBuffer(1, 1, 22050);
+    const node   = audioContext.createBufferSource();
+    node.buffer  = buffer;
+    node.connect(audioContext.destination);
+    node.start(0);
+    await audioContext.resume();
+    document.body.removeEventListener('touchend', _unlock);
+    }, { once: true });
+
   initMedia().catch(err => console.error("initMedia error:", err));
 });
 </script>
