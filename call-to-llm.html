@@ -60,20 +60,13 @@
   <canvas id="waveCanvas"></canvas>
 </div>
 
-<!-- 播放授权蒙层 -->
-<div id="audio-permission-overlay" style="
-position: fixed; top:0; left:0; right:0; bottom:0;
-background: rgba(0,0,0,0.8); display: flex;
-align-items: center; justify-content: center; z-index: 9999;
-">
-<button id="allow-audio-btn" style="
-  padding: 1em 2em; font-size: 1.2em;
-">允许播放</button>
-</div>
-
 <!-- lamejs: 用于将录音的 PCM 数据转 MP3 -->
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
-
+<script src="https://unpkg.com/vconsole@latest/dist/vconsole.min.js"></script>
+<script>
+var vConsole = new VConsole();
+console.log('Hello world');
+</script>
 <script>
 /**
  * 全局变量
@@ -188,7 +181,7 @@ async function initMedia() {
   videoElement.srcObject = globalStream;
 
   // 创建音频上下文 & 分析器
-//   audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioContext.createMediaStreamSource(globalStream);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 2048;
@@ -487,24 +480,6 @@ function drawWave() {
  * 页面加载时执行
  */
 window.addEventListener("load", () => {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const overlay = document.getElementById('audio-permission-overlay');
-      const btn     = document.getElementById('allow-audio-btn');
-
-      btn.addEventListener('click', async () => {
-        // 如果用到了 Web Audio API，先 resume 一下上下文
-        if (window.audioContext && audioContext.state === 'suspended') {
-          await audioContext.resume();
-        }
-
-        // 可选：播放一小段静音，确保后续 audio.play() 都被视为用户触发
-        const silent = new Audio('data:audio/mp3;base64,//uQxAAAAAAD...'); 
-        // （这里 base64 填一个超短的静音帧即可）
-        await silent.play().catch(() => { /* ignore */ });
-
-        // 隐藏蒙层
-        overlay.style.display = 'none';
-      });
   initMedia().catch(err => console.error("initMedia error:", err));
 });
 </script>
