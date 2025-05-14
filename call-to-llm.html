@@ -295,7 +295,7 @@ function vadLoop() {
   const rms = Math.sqrt(sum / dataArray.length);
 
   const volume = rms * 100; // 0 ~ 1之间，放大一点方便看
-  const VAD_THRESHOLD = 1; // 需要多调试
+  const VAD_THRESHOLD = 2; // 需要多调试
   if (!recording && volume > VAD_THRESHOLD) {
     console.log("检测到说话，开始录音");
     startRecording();
