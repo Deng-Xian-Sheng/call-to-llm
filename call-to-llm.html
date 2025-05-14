@@ -68,7 +68,7 @@ align-items: center; justify-content: center; z-index: 9999;
 ">
 <button id="allow-audio-btn" style="
   padding: 1em 2em; font-size: 1.2em;
-">允许播放111</button>
+">允许播放</button>
 </div>
 
 <!-- lamejs: 用于将录音的 PCM 数据转 MP3 -->
@@ -188,7 +188,7 @@ async function initMedia() {
   videoElement.srcObject = globalStream;
 
   // 创建音频上下文 & 分析器
-  audioContext = new (window.AudioContext || window.webkitAudioContext)();
+//   audioContext = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioContext.createMediaStreamSource(globalStream);
   analyser = audioContext.createAnalyser();
   analyser.fftSize = 2048;
@@ -487,8 +487,8 @@ function drawWave() {
  * 页面加载时执行
  */
 window.addEventListener("load", () => {
-  initMedia().catch(err => console.error("initMedia error:", err));
-  const overlay = document.getElementById('audio-permission-overlay');
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const overlay = document.getElementById('audio-permission-overlay');
       const btn     = document.getElementById('allow-audio-btn');
 
       btn.addEventListener('click', async () => {
@@ -498,13 +498,14 @@ window.addEventListener("load", () => {
         }
 
         // 可选：播放一小段静音，确保后续 audio.play() 都被视为用户触发
-        const silent = new Audio('data:audio/mp3;base64,'); 
+        const silent = new Audio('data:audio/mp3;base64,//uQxAAAAAAD...'); 
         // （这里 base64 填一个超短的静音帧即可）
         await silent.play().catch(() => { /* ignore */ });
 
         // 隐藏蒙层
         overlay.style.display = 'none';
       });
+  initMedia().catch(err => console.error("initMedia error:", err));
 });
 </script>
 </body>
