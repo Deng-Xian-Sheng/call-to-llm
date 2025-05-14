@@ -420,11 +420,23 @@ function arrayBufferToBase64(uint8Arr) {
 /**
  * 播放base64音频
  */
+function base64ToUint8Array(base64) {
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) {
+    arr[i] = raw.charCodeAt(i);
+  }
+  return arr;
+}
 function playBase64Audio(base64) {
-  const audio = new Audio("data:audio/mp3;base64," + base64);
-  audio.play()
-    .then(() => {})
-    .catch(e => console.error("音频播放失败", e));
+  const mime = 'audio/mp3';
+  const u8 = base64ToUint8Array(base64);
+  const blob = new Blob([u8], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.play().catch(err => console.error('播放失败', err));
+  // 播放完后释放 URL
+  audio.onended = () => URL.revokeObjectURL(url);
 }
 
 /**
