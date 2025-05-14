@@ -269,7 +269,7 @@ async function initMedia() {
     });
     console.log(audioResponseId)
     // 5) 播放返回的音频
-    playBase64Audio(audioResponseBase64);
+    await playBase64Audio(audioResponseBase64);
   });
 
   // 开启绘制波形
@@ -431,7 +431,7 @@ function base64ToUint8Array(base64) {
 }
 
 // 用 AudioContext 播放
-async function playBase64ViaAudioContext(base64) {
+async function playBase64Audio(base64) {
   if (!audioContext) {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
