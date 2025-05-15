@@ -84,6 +84,8 @@ let messages = []; // 用于多轮对话
 window.latestImageDescPromise = null;
 // 触发 Promise.resolve 的函数
 window.resolveLatestImageDesc = null;
+let round = false
+
 
 /**
  * callTextImageLLM: 返回图片的文字描述
@@ -334,9 +336,10 @@ function vadLoop() {
  */
 async function startRecording() {
   if (!mediaRecorder) return;
-  if (recording) return;
+  if (recording||round) return;
   recording = true;
   vadActive = true;
+  round = true;
   mediaRecorder.start();
 
   // 创建一个可以外部 resolve 的 Promise
@@ -484,6 +487,7 @@ async function playBase64Audio(base64) {
   // 播放结束后自动断开，避免内存泄漏
   source.onended = () => {
     source.disconnect();
+    round = false;
   }
 }
 
