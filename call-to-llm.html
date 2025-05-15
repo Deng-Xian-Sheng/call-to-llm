@@ -317,7 +317,7 @@ function vadLoop() {
     console.log("检测到说话，开始录音");
     startRecording();
   }
-  if (recording && !round && volume < VAD_THRESHOLD) {
+  if (recording && volume < VAD_THRESHOLD) {
     // 如果说话音量降到阈值以下，则计时
     if (silenceTimeout) {
       // 已在计时中
@@ -367,7 +367,7 @@ async function startRecording() {
  */
 function stopRecording() {
   if (!mediaRecorder) return;
-  if (!recording || round) return;
+  if (!recording) return;
   recording = false;
   vadActive = false;
   mediaRecorder.stop();
