@@ -138,7 +138,7 @@ async function callTextImageLLM(base64Image, imageFormat = "jpeg") {
 async function callAudioLLM(messagesParam) {
   const payload = {
     model: "openai-audio",
-    modalities: ["text", "audio"],
+    modalities: ["image","text", "audio"],
     audio: { voice: "alloy", format: "mp3" },
     messages: messagesParam,
     referrer: "call to chatgpt1",
