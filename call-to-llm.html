@@ -84,6 +84,7 @@ let messages = []; // 用于多轮对话
 window.latestImageDescPromise = null;
 // 触发 Promise.resolve 的函数
 window.resolveLatestImageDesc = null;
+// 为 true 代表一轮对话进行中， false 代表结束
 let round = false
 
 
@@ -312,11 +313,11 @@ function vadLoop() {
 
   const volume = rms * 100; // 0 ~ 1之间，放大一点方便看
   const VAD_THRESHOLD = 2; // 需要多调试
-  if (!recording && volume > VAD_THRESHOLD) {
+  if (!recording && !round && volume > VAD_THRESHOLD) {
     console.log("检测到说话，开始录音");
     startRecording();
   }
-  if (recording && volume < VAD_THRESHOLD) {
+  if (recording && !round && volume < VAD_THRESHOLD) {
     // 如果说话音量降到阈值以下，则计时
     if (silenceTimeout) {
       // 已在计时中
@@ -366,7 +367,7 @@ async function startRecording() {
  */
 function stopRecording() {
   if (!mediaRecorder) return;
-  if (!recording) return;
+  if (!recording || round) return;
   recording = false;
   vadActive = false;
   mediaRecorder.stop();
