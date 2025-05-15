@@ -84,6 +84,7 @@ let messages = []; // 用于多轮对话
 window.latestImageDescPromise = null;
 // 触发 Promise.resolve 的函数
 window.resolveLatestImageDesc = null;
+let imageBase64 = null
 
 /**
  * callTextImageLLM: 返回图片的文字描述
@@ -217,16 +218,6 @@ async function initMedia() {
     // 转 base64
     const mp3Base64 = arrayBufferToBase64(mp3Data);
 
-    // 确保 imageDesc 已得到
-    if (window.latestImageDescPromise) {
-        await window.latestImageDescPromise;
-    } else {
-        // 万一没有初始化 promise，就退回到简单轮询
-        while (!window.latestedImageDesc) {
-        await new Promise(r => setTimeout(r, 100));
-        }
-    }
-
     // 调用第三方 API
     // （messages 中需要包含系统提示词、用户消息）
     // 1) 先在 messages 中添加用户消息 (含上一次抓取的图像描述 + 音频)
@@ -235,8 +226,10 @@ async function initMedia() {
       role: "user",
       content: [
         {
-          type: "text",
-          text: `<img_desc>\n${window.latestedImageDesc || ""}\n</img_desc>`,
+          type: "image_url",
+          image_url: {
+            url: `data:image/jpeg;base64,${imageBase64}`,
+          },
         },
         {
           type: "input_audio",
@@ -338,24 +331,8 @@ async function startRecording() {
   recording = true;
   vadActive = true;
   mediaRecorder.start();
-
-  // 创建一个可以外部 resolve 的 Promise
-  window.latestImageDescPromise = new Promise(resolve => {
-    window.resolveImageDesc = resolve;
-  });
   // 抓取一帧摄像头图像
-  const imageBase64 = await captureFrame();
-  // 调用图转文字描述
-  let imageDesc = "";
-  try {
-    imageDesc = await callTextImageLLM(imageBase64);
-  } catch (err) {
-    console.error("调用图转文字描述API失败:", err);
-  }
-  /*缓存图像描述到全局*/
-  // 缓存到 window 并 resolve 那个 Promise
-  window.latestedImageDesc = imageDesc
-  window.resolveImageDesc(imageDesc);
+  imageBase64 = await captureFrame();
 }
 
 /**
