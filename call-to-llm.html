@@ -94,7 +94,7 @@ let round = false
 async function callTextImageLLM(base64Image, imageFormat = "jpeg") {
   const pureBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
   const payload = {
-    model: "openai",
+    model: "openai-fast",
     messages: [
       {
         role: "developer",
