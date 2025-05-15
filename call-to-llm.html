@@ -115,7 +115,7 @@ async function callTextImageLLM(base64Image, imageFormat = "jpeg") {
         ],
       },
     ],
-    referrer: "call to chatgpt1",
+    referrer: "call to chatgpt",
   };
 
   const url = "https://text.pollinations.ai/openai";
@@ -143,7 +143,7 @@ async function callAudioLLM(messagesParam) {
     modalities: ["text", "audio"],
     audio: { voice: "alloy", format: "mp3" },
     messages: messagesParam,
-    referrer: "call to chatgpt1",
+    referrer: "call to chatgpt",
   };
   const url = "https://text.pollinations.ai/openai";
   const resp = await fetch(url, {
